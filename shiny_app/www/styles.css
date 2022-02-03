@@ -1,0 +1,32 @@
+input[type="number"] {
+  max-width: 80%;
+}
+
+div.outer {
+  position: fixed;
+  top: 65px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+body, label, input, button, select { 
+  font-family: 'Lato';
+  font-weight: 200;
+}
+
+h1, h2, h3, h4 { 
+    font-weight: 400; 
+}
+
+#filterPanel {
+  background-color: white;
+  padding: 5px 5px 0px 5px;
+  cursor: move;
+}
+
+.leaflet-container {
+  background-color: white !important;
+}

@@ -1,0 +1,1193 @@
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(jsonlite)
+library(httr)
+library(sf)
+```
+
+```{r message=FALSE, warning=FALSE}
+hmda_2020 <- read_csv("../data/state_WA_2020.csv", show_col_types = F)
+hmda_2019 <- read_csv("../data/state_WA_2019.csv", show_col_types = F)
+hmda_2018 <- read_csv("../data/state_WA_2018.csv", show_col_types = F)
+
+hmda <- bind_rows(hmda_2020, hmda_2019, hmda_2018)
+```
+
+```{r message=FALSE, warning=FALSE}
+numeric_cols <- c("loan_amount",
+                  "loan_to_value_ratio",
+                  "interest_rate",
+                  "rate_spread",
+                  "total_loan_costs",
+                  "total_points_and_fees",
+                  "origination_charges",
+                  "discount_points",
+                  "lender_credits",
+                  "loan_term",
+                  "prepayment_penalty_term",
+                  "intro_rate_period",
+                  "property_value",
+                  "multifamily_affordable_units",
+                  "income",
+                  "debt_to_income_ratio",
+                  "tract_population",
+                  "tract_minority_population_percent",
+                  "ffiec_msa_md_median_family_income",
+                  "tract_to_msa_income_percentage",
+                  "tract_owner_occupied_units",
+                  "tract_one_to_four_family_homes",
+                  "tract_median_age_of_housing_units"
+)
+
+hmda[numeric_cols] <- lapply(hmda[numeric_cols], as.numeric)
+```
+
+```{r message=FALSE, warning=FALSE}
+factor_cols <- c("activity_year",
+                  "lei",
+                  "derived_msa-md",
+                  "state_code",
+                  "county_code",
+                  "census_tract",
+                  "derived_loan_product_type",
+                  "derived_dwelling_category",
+                  "derived_ethnicity",
+                  "derived_race",
+                  "derived_sex",
+                  "total_units",
+                  "applicant_age_above_62",
+                  "co-applicant_age_above_62"
+)
+
+hmda[factor_cols] <- lapply(hmda[factor_cols], as.factor)
+```
+
+
+```{r}
+hmda$conforming_loan_limit <- factor(hmda$conforming_loan_limit,
+                                     levels = c("C", "N", "U", "NA"), 
+                                     labels = c("Conforming", 
+                                                "Nonconforming",
+                                                "Undetermined",
+                                                NA)
+)
+
+hmda$action_taken <- factor(hmda$action_taken,
+                            levels = c(1, 2, 3, 4, 5, 6, 7, 8), 
+                            labels = c("Loan originated", 
+                                       "Application approved but not accepted",
+                                       "Application denied",
+                                       "Application withdrawn by applicant",
+                                       "File closed for incompleteness",
+                                       "Purchased loan",
+                                       "Preapproval request denied",
+                                       "Preapproval request approved but not accepted")
+)
+
+hmda$purchaser_type <- factor(hmda$purchaser_type,
+                              levels = c(0, 1, 2, 3, 4, 5, 6, 71, 72, 8, 9), 
+                              labels = c(NA, 
+                                         "Fannie Mae",
+                                         "Ginnie Mae",
+                                         "Freddie Mac",
+                                         "Farmer Mac",
+                                         "Private securitizer",
+                                         "Commercial bank, savings bank, or savings association",
+                                         "Credit union, mortgage company, or finance company",
+                                         "Life insurance company",
+                                         "Affiliate institution",
+                                         "Other type of purchaser")
+)
+
+hmda$preapproval <- factor(hmda$preapproval,
+                         levels = c(1, 2), 
+                         labels = c("Preapproval requested", 
+                                    "Preapproval not requested")
+)
+
+hmda$loan_type <- factor(hmda$loan_type,
+                         levels = c(1, 2, 3, 4), 
+                         labels = c("Conventional", 
+                                    "FHA",
+                                    "VA",
+                                    "RHS/FSA")
+)
+
+hmda$loan_purpose <- factor(hmda$loan_purpose,
+                            levels = c(1, 2, 31, 32, 4, 5), 
+                            labels = c("Home purchase", 
+                                       "Home improvement",
+                                       "Refinancing",
+                                       "Cash-out refinancing",
+                                       "Other purpose",
+                                       NA)
+)
+
+hmda$lien_status <- factor(hmda$lien_status,
+                           levels = c(1, 2), 
+                           labels = c("Secured by a first lien", 
+                                      "Secured by a subordinate lien")
+)
+
+hmda$reverse_mortgage <- factor(hmda$reverse_mortgage,
+                                levels = c(1, 2, 1111),
+                                labels = c("Reverse mortgage", 
+                                           "Not a reverse mortgage",
+                                           "Exempt")
+)
+
+hmda$`open-end_line_of_credit` <- factor(hmda$`open-end_line_of_credit`,
+                                         levels = c(1, 2, 1111), 
+                                         labels = c("Open-end line of credit", 
+                                                    "Not an open-end line of credit",
+                                                    "Exempt")
+)
+
+hmda$business_or_commercial_purpose <- factor(hmda$business_or_commercial_purpose,
+                                              levels = c(1, 2, 1111), 
+                                              labels = c("Primarily for a business or commercial purpose", 
+                                                         "Not primarily for a business or commercial purpose",
+                                                         "Exempt")
+)
+
+hmda$hoepa_status <- factor(hmda$hoepa_status,
+                            levels = c(1, 2, 3), 
+                            labels = c("High-cost mortgage", 
+                                       "Not a high-cost mortgage",
+                                       NA)
+)
+
+hmda$negative_amortization <- factor(hmda$negative_amortization,
+                                     levels = c(1, 2, 1111), 
+                                     labels = c("Negative amortization", 
+                                                "No negative amortization",
+                                                "Exempt")
+)
+
+hmda$interest_only_payment <- factor(hmda$interest_only_payment,
+                                     levels = c(1, 2, 1111), 
+                                     labels = c("Interest-only payments", 
+                                                "No interest-only payments",
+                                                "Exempt")
+)
+
+hmda$balloon_payment <- factor(hmda$balloon_payment,
+                               levels = c(1, 2, 1111), 
+                               labels = c("Balloon payment", 
+                                          "No balloon payment",
+                                          "Exempt")
+)
+
+hmda$other_nonamortizing_features <- factor(hmda$other_nonamortizing_features,
+                                            levels = c(1, 2, 1111), 
+                                            labels = c("Other non-fully amortizing features", 
+                                                       "No other non-fully amortizing features",
+                                                       "Exempt")
+)
+
+hmda$construction_method <- factor(hmda$construction_method,
+                                   levels = c(1, 2), 
+                                   labels = c("Site-built", 
+                                              "Manufactured home")
+)
+
+hmda$occupancy_type <- factor(hmda$occupancy_type,
+                              levels = c(1, 2, 3), 
+                              labels = c("Principal residence", 
+                                         "Second residence",
+                                         "Investment property")
+)
+
+hmda$manufactured_home_secured_property_type <- factor(hmda$manufactured_home_secured_property_type,
+                                                       levels = c(1, 2, 3, 1111), 
+                                                       labels = c("Manufactured home and land", 
+                                                                  "Manufactured home and not land",
+                                                                  NA,
+                                                                  "Exempt")
+)
+
+hmda$manufactured_home_land_property_interest <- factor(hmda$manufactured_home_land_property_interest,
+                                                        levels = c(1, 2, 3, 4, 5, 1111), 
+                                                        labels = c("Direct ownership", 
+                                                                   "Indirect ownership",
+                                                                   "Paid leasehold",
+                                                                   "Unpaid leasehold",
+                                                                   NA,
+                                                                   "Exempt")
+)
+
+hmda$applicant_credit_score_type <- factor(hmda$applicant_credit_score_type,
+                                           levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 1111), 
+                                           labels = c("Equifax Beacon 5.0", 
+                                                      "Experian Fair Isaac",
+                                                      "FICO Risk Score Classic 04",
+                                                      "FICO Risk Score Classic 98",
+                                                      "VantageScore 2.0",
+                                                      "VantageScore 3.0",
+                                                      "More than one credit scoring model",
+                                                      "Other credit scoring model",
+                                                      NA,
+                                                      "Exempt")
+)
+
+hmda$`co-applicant_credit_score_type` <- factor(hmda$`co-applicant_credit_score_type`,
+                                                levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 1111), 
+                                                labels = c("Equifax Beacon 5.0", 
+                                                           "Experian Fair Isaac",
+                                                           "FICO Risk Score Classic 04",
+                                                           "FICO Risk Score Classic 98",
+                                                           "VantageScore 2.0",
+                                                           "VantageScore 3.0",
+                                                           "More than one credit scoring model",
+                                                           "Other credit scoring model",
+                                                           NA,
+                                                           "Exempt")
+)
+
+hmda$`applicant_ethnicity-1` <- factor(hmda$`applicant_ethnicity-1`,
+                                       levels = c(1, 11, 12, 13, 14, 2, 3, 4), 
+                                       labels = c("Hispanic or Latino", 
+                                                  "Mexican",
+                                                  "Puerto Rican",
+                                                  "Cuban",
+                                                  "Other Hispanic or Latino",
+                                                  "Not Hispanic or Latino",
+                                                  "Information not provided by applicant in mail, internet, or telephone application",
+                                                  NA)
+)
+
+hmda$`applicant_ethnicity-2` <- factor(hmda$`applicant_ethnicity-2`,
+                                       levels = c(1, 11, 12, 13, 14, 2), 
+                                       labels = c("Hispanic or Latino", 
+                                                  "Mexican",
+                                                  "Puerto Rican",
+                                                  "Cuban",
+                                                  "Other Hispanic or Latino",
+                                                  "Not Hispanic or Latino")
+)
+
+hmda$`applicant_ethnicity-3` <- factor(hmda$`applicant_ethnicity-3`,
+                                       levels = c(1, 11, 12, 13, 14, 2), 
+                                       labels = c("Hispanic or Latino", 
+                                                  "Mexican",
+                                                  "Puerto Rican",
+                                                  "Cuban",
+                                                  "Other Hispanic or Latino",
+                                                  "Not Hispanic or Latino")
+)
+
+hmda$`applicant_ethnicity-4` <- factor(hmda$`applicant_ethnicity-4`,
+                                       levels = c(1, 11, 12, 13, 14, 2), 
+                                       labels = c("Hispanic or Latino", 
+                                                  "Mexican",
+                                                  "Puerto Rican",
+                                                  "Cuban",
+                                                  "Other Hispanic or Latino",
+                                                  "Not Hispanic or Latino")
+)
+
+hmda$`applicant_ethnicity-5` <- factor(hmda$`applicant_ethnicity-5`,
+                                       levels = c(1, 11, 12, 13, 14, 2), 
+                                       labels = c("Hispanic or Latino", 
+                                                  "Mexican",
+                                                  "Puerto Rican",
+                                                  "Cuban",
+                                                  "Other Hispanic or Latino",
+                                                  "Not Hispanic or Latino")
+)
+
+hmda$`co-applicant_ethnicity-1` <- factor(hmda$`co-applicant_ethnicity-1`,
+                                          levels = c(1, 11, 12, 13, 14, 2, 3, 4, 5), 
+                                          labels = c("Hispanic or Latino", 
+                                                     "Mexican",
+                                                     "Puerto Rican",
+                                                     "Cuban",
+                                                     "Other Hispanic or Latino",
+                                                     "Not Hispanic or Latino",
+                                                     "Information not provided by applicant in mail, internet, or telephone application",
+                                                     NA,
+                                                     "No co-applicant")
+)
+
+hmda$`co-applicant_ethnicity-2` <- factor(hmda$`co-applicant_ethnicity-2`,
+                                          levels = c(1, 11, 12, 13, 14, 2), 
+                                          labels = c("Hispanic or Latino", 
+                                                     "Mexican",
+                                                     "Puerto Rican",
+                                                     "Cuban",
+                                                     "Other Hispanic or Latino",
+                                                     "Not Hispanic or Latino")
+)
+
+hmda$`co-applicant_ethnicity-3` <- factor(hmda$`co-applicant_ethnicity-3`,
+                                          levels = c(1, 11, 12, 13, 14, 2), 
+                                          labels = c("Hispanic or Latino", 
+                                                     "Mexican",
+                                                     "Puerto Rican",
+                                                     "Cuban",
+                                                     "Other Hispanic or Latino",
+                                                     "Not Hispanic or Latino")
+)
+
+hmda$`co-applicant_ethnicity-4` <- factor(hmda$`co-applicant_ethnicity-4`,
+                                          levels = c(1, 11, 12, 13, 14, 2), 
+                                          labels = c("Hispanic or Latino", 
+                                                     "Mexican",
+                                                     "Puerto Rican",
+                                                     "Cuban",
+                                                     "Other Hispanic or Latino",
+                                                     "Not Hispanic or Latino")
+)
+
+hmda$`co-applicant_ethnicity-5` <- factor(hmda$`co-applicant_ethnicity-5`,
+                                          levels = c(1, 11, 12, 13, 14, 2), 
+                                          labels = c("Hispanic or Latino", 
+                                                     "Mexican",
+                                                     "Puerto Rican",
+                                                     "Cuban",
+                                                     "Other Hispanic or Latino",
+                                                     "Not Hispanic or Latino")
+)
+
+hmda$applicant_ethnicity_observed <- factor(hmda$applicant_ethnicity_observed,
+                                            levels = c(1, 2, 3), 
+                                            labels = c("Collected on the basis of visual observation or surname", 
+                                                       "Not collected on the basis of visual observation or surname",
+                                                       NA)
+)
+
+hmda$`co-applicant_ethnicity_observed` <- factor(hmda$`co-applicant_ethnicity_observed`,
+                                                 levels = c(1, 2, 3, 4), 
+                                                 labels = c("Collected on the basis of visual observation or surname", 
+                                                            "Not collected on the basis of visual observation or surname",
+                                                            NA,
+                                                            "No co-applicant")
+)
+
+hmda$`applicant_race-1` <- factor(hmda$`applicant_race-1`,
+                                  levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5, 6, 7), 
+                                  labels = c("American Indian or Alaska Native", 
+                                             "Asian",
+                                             "Asian Indian",
+                                             "Chinese",
+                                             "Filipino",
+                                             "Japanese",
+                                             "Korean",
+                                             "Vietnamese",
+                                             "Other Asian",
+                                             "Black or African American",
+                                             "Native Hawaiian or Other Pacific Islander",
+                                             "Native Hawaiian",
+                                             "Guamanian or Chamorro",
+                                             "Samoan",
+                                             "Other Pacific Islander",
+                                             "White",
+                                             "Information not provided by applicant in mail, internet, or telephone application",
+                                             NA)
+)
+
+hmda$`applicant_race-2` <- factor(hmda$`applicant_race-2`,
+                                  levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                  labels = c("American Indian or Alaska Native", 
+                                             "Asian",
+                                             "Asian Indian",
+                                             "Chinese",
+                                             "Filipino",
+                                             "Japanese",
+                                             "Korean",
+                                             "Vietnamese",
+                                             "Other Asian",
+                                             "Black or African American",
+                                             "Native Hawaiian or Other Pacific Islander",
+                                             "Native Hawaiian",
+                                             "Guamanian or Chamorro",
+                                             "Samoan",
+                                             "Other Pacific Islander",
+                                             "White")
+)
+
+hmda$`applicant_race-3` <- factor(hmda$`applicant_race-3`,
+                                  levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                  labels = c("American Indian or Alaska Native", 
+                                             "Asian",
+                                             "Asian Indian",
+                                             "Chinese",
+                                             "Filipino",
+                                             "Japanese",
+                                             "Korean",
+                                             "Vietnamese",
+                                             "Other Asian",
+                                             "Black or African American",
+                                             "Native Hawaiian or Other Pacific Islander",
+                                             "Native Hawaiian",
+                                             "Guamanian or Chamorro",
+                                             "Samoan",
+                                             "Other Pacific Islander",
+                                             "White")
+)
+
+hmda$`applicant_race-4` <- factor(hmda$`applicant_race-4`,
+                                  levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                  labels = c("American Indian or Alaska Native", 
+                                             "Asian",
+                                             "Asian Indian",
+                                             "Chinese",
+                                             "Filipino",
+                                             "Japanese",
+                                             "Korean",
+                                             "Vietnamese",
+                                             "Other Asian",
+                                             "Black or African American",
+                                             "Native Hawaiian or Other Pacific Islander",
+                                             "Native Hawaiian",
+                                             "Guamanian or Chamorro",
+                                             "Samoan",
+                                             "Other Pacific Islander",
+                                             "White")
+)
+
+hmda$`applicant_race-5` <- factor(hmda$`applicant_race-5`,
+                                  levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                  labels = c("American Indian or Alaska Native", 
+                                             "Asian",
+                                             "Asian Indian",
+                                             "Chinese",
+                                             "Filipino",
+                                             "Japanese",
+                                             "Korean",
+                                             "Vietnamese",
+                                             "Other Asian",
+                                             "Black or African American",
+                                             "Native Hawaiian or Other Pacific Islander",
+                                             "Native Hawaiian",
+                                             "Guamanian or Chamorro",
+                                             "Samoan",
+                                             "Other Pacific Islander",
+                                             "White")
+)
+
+hmda$`co-applicant_race-1` <- factor(hmda$`co-applicant_race-1`,
+                                     levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5, 6, 7, 8), 
+                                     labels = c("American Indian or Alaska Native", 
+                                                "Asian",
+                                                "Asian Indian",
+                                                "Chinese",
+                                                "Filipino",
+                                                "Japanese",
+                                                "Korean",
+                                                "Vietnamese",
+                                                "Other Asian",
+                                                "Black or African American",
+                                                "Native Hawaiian or Other Pacific Islander",
+                                                "Native Hawaiian",
+                                                "Guamanian or Chamorro",
+                                                "Samoan",
+                                                "Other Pacific Islander",
+                                                "White",
+                                                "Information not provided by applicant in mail, internet, or telephone application",
+                                                NA,
+                                                "No co-applicant")
+)
+
+hmda$`co-applicant_race-2` <- factor(hmda$`co-applicant_race-2`,
+                                     levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                     labels = c("American Indian or Alaska Native", 
+                                                "Asian",
+                                                "Asian Indian",
+                                                "Chinese",
+                                                "Filipino",
+                                                "Japanese",
+                                                "Korean",
+                                                "Vietnamese",
+                                                "Other Asian",
+                                                "Black or African American",
+                                                "Native Hawaiian or Other Pacific Islander",
+                                                "Native Hawaiian",
+                                                "Guamanian or Chamorro",
+                                                "Samoan",
+                                                "Other Pacific Islander",
+                                                "White")
+)
+
+hmda$`co-applicant_race-2` <- factor(hmda$`co-applicant_race-2`,
+                                     levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                     labels = c("American Indian or Alaska Native", 
+                                                "Asian",
+                                                "Asian Indian",
+                                                "Chinese",
+                                                "Filipino",
+                                                "Japanese",
+                                                "Korean",
+                                                "Vietnamese",
+                                                "Other Asian",
+                                                "Black or African American",
+                                                "Native Hawaiian or Other Pacific Islander",
+                                                "Native Hawaiian",
+                                                "Guamanian or Chamorro",
+                                                "Samoan",
+                                                "Other Pacific Islander",
+                                                "White")
+)
+
+hmda$`co-applicant_race-3` <- factor(hmda$`co-applicant_race-3`,
+                                     levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                     labels = c("American Indian or Alaska Native", 
+                                                "Asian",
+                                                "Asian Indian",
+                                                "Chinese",
+                                                "Filipino",
+                                                "Japanese",
+                                                "Korean",
+                                                "Vietnamese",
+                                                "Other Asian",
+                                                "Black or African American",
+                                                "Native Hawaiian or Other Pacific Islander",
+                                                "Native Hawaiian",
+                                                "Guamanian or Chamorro",
+                                                "Samoan",
+                                                "Other Pacific Islander",
+                                                "White")
+)
+
+hmda$`co-applicant_race-4` <- factor(hmda$`co-applicant_race-4`,
+                                     levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                     labels = c("American Indian or Alaska Native", 
+                                                "Asian",
+                                                "Asian Indian",
+                                                "Chinese",
+                                                "Filipino",
+                                                "Japanese",
+                                                "Korean",
+                                                "Vietnamese",
+                                                "Other Asian",
+                                                "Black or African American",
+                                                "Native Hawaiian or Other Pacific Islander",
+                                                "Native Hawaiian",
+                                                "Guamanian or Chamorro",
+                                                "Samoan",
+                                                "Other Pacific Islander",
+                                                "White")
+)
+
+hmda$`co-applicant_race-5` <- factor(hmda$`co-applicant_race-5`,
+                                     levels = c(1, 2, 21, 22, 23, 24, 25, 26, 27, 3, 4, 41, 42, 43, 44, 5), 
+                                     labels = c("American Indian or Alaska Native", 
+                                                "Asian",
+                                                "Asian Indian",
+                                                "Chinese",
+                                                "Filipino",
+                                                "Japanese",
+                                                "Korean",
+                                                "Vietnamese",
+                                                "Other Asian",
+                                                "Black or African American",
+                                                "Native Hawaiian or Other Pacific Islander",
+                                                "Native Hawaiian",
+                                                "Guamanian or Chamorro",
+                                                "Samoan",
+                                                "Other Pacific Islander",
+                                                "White")
+)
+
+hmda$applicant_race_observed <- factor(hmda$applicant_race_observed,
+                                       levels = c(1, 2, 3), 
+                                       labels = c("Collected on the basis of visual observation or surname", 
+                                                  "Not collected on the basis of visual observation or surname",
+                                                  NA)
+)
+
+hmda$`co-applicant_race_observed` <- factor(hmda$`co-applicant_race_observed`,
+                                            levels = c(1, 2, 3, 4), 
+                                            labels = c("Collected on the basis of visual observation or surname", 
+                                                       "Not collected on the basis of visual observation or surname",
+                                                       NA,
+                                                       "No co-applicant")
+)
+
+hmda$applicant_sex <- factor(hmda$applicant_sex,
+                             levels = c(1, 2, 3, 4, 6), 
+                             labels = c("Male", 
+                                        "Female", 
+                                        "Information not provided by applicant in mail, internet, or telephone application", 
+                                        NA, 
+                                        "Applicant selected both male and female")
+)
+
+hmda$`co-applicant_sex` <- factor(hmda$`co-applicant_sex`,
+                                  levels = c(1, 2, 3, 4, 5, 6), 
+                                  labels = c("Male", 
+                                             "Female", 
+                                             "Information not provided by applicant in mail, internet, or telephone application",
+                                             NA,
+                                             "No co-applicant",
+                                             "Co-applicant selected both male and female")
+)
+
+hmda$applicant_sex_observed <- factor(hmda$applicant_sex_observed,
+                                      levels = c(1, 2, 3), 
+                                      labels = c("Collected on the basis of visual observation or surname", 
+                                                 "Not collected on the basis of visual observation or surname",
+                                                 NA)
+)
+
+hmda$`co-applicant_sex_observed` <- factor(hmda$`co-applicant_sex_observed`,
+                                           levels = c(1, 2, 3, 4), 
+                                           labels = c("Collected on the basis of visual observation or surname", 
+                                                      "Not collected on the basis of visual observation or surname",
+                                                      NA,
+                                                      "No co-applicant")
+)
+
+hmda$applicant_age <- factor(hmda$applicant_age,
+                             levels = c("<25", "25-34", "35-44", "45-54", "55-64", "65-74", ">74", 8888, 9999), 
+                             labels = c("<25", 
+                                        "25-34", 
+                                        "35-44", 
+                                        "45-54", 
+                                        "55-64", 
+                                        "65-74", 
+                                        ">74", 
+                                        NA,
+                                        NA)
+)
+
+hmda$`co-applicant_age` <- factor(hmda$`co-applicant_age`,
+                                  levels = c("<25", "25-34", "35-44", "45-54", "55-64", "65-74", ">74", 8888, 9999), 
+                                  labels = c("<25", 
+                                             "25-34", 
+                                             "35-44", 
+                                             "45-54", 
+                                             "55-64", 
+                                             "65-74", 
+                                             ">74", 
+                                             NA,
+                                             "No co-applicant")
+)
+
+hmda$submission_of_application <- factor(hmda$submission_of_application,
+                                         levels = c(1, 2, 3, 1111), 
+                                         labels = c("Submitted directly to your institution",
+                                                    "Not submitted directly to your institution",
+                                                    NA,
+                                                    "Exempt")
+)
+
+hmda$initially_payable_to_institution <- factor(hmda$initially_payable_to_institution,
+                                                levels = c(1, 2, 3, 1111), 
+                                                labels = c("Initially payable to your institution",
+                                                           "Not initially payable to your institution",
+                                                           NA,
+                                                           "Exempt")
+)
+
+hmda$`aus-1` <- factor(hmda$`aus-1`,
+                       levels = c(1, 2, 3, 4, 5, 6, 1111), 
+                       labels = c("Desktop Underwriter (DU)",
+                                  "Loan Prospector (LP) or Loan Product Advisor",
+                                  "Technology Open to Approved Lenders (TOTAL) Scorecard",
+                                  "Guaranteed Underwriting System (GUS)",
+                                  "Other",
+                                  NA,
+                                  "Exempt")
+)
+
+hmda$`aus-2` <- factor(hmda$`aus-2`,
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("Desktop Underwriter (DU)",
+                                  "Loan Prospector (LP) or Loan Product Advisor",
+                                  "Technology Open to Approved Lenders (TOTAL) Scorecard",
+                                  "Guaranteed Underwriting System (GUS)",
+                                  "Other")
+)
+
+hmda$`aus-3` <- factor(hmda$`aus-3`,
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("Desktop Underwriter (DU)",
+                                  "Loan Prospector (LP) or Loan Product Advisor",
+                                  "Technology Open to Approved Lenders (TOTAL) Scorecard",
+                                  "Guaranteed Underwriting System (GUS)",
+                                  "Other")
+)
+
+hmda$`aus-4` <- factor(hmda$`aus-4`,
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("Desktop Underwriter (DU)",
+                                  "Loan Prospector (LP) or Loan Product Advisor",
+                                  "Technology Open to Approved Lenders (TOTAL) Scorecard",
+                                  "Guaranteed Underwriting System (GUS)",
+                                  "Other")
+)
+
+hmda$`aus-5` <- factor(hmda$`aus-5`,
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("Desktop Underwriter (DU)",
+                                  "Loan Prospector (LP) or Loan Product Advisor",
+                                  "Technology Open to Approved Lenders (TOTAL) Scorecard",
+                                  "Guaranteed Underwriting System (GUS)",
+                                  "Other")
+)
+
+hmda$`denial_reason-1` <- factor(hmda$`denial_reason-1`,
+                                 levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), 
+                                 labels = c("Debt-to-income ratio",
+                                            "Employment history",
+                                            "Credit history",
+                                            "Collateral",
+                                            "Insufficient cash (downpayment, closing costs)",
+                                            "Unverifiable information",
+                                            "Credit application incomplete",
+                                            "Mortgage insurance denied",
+                                            "Other",
+                                            NA)
+)
+
+hmda$`denial_reason-2` <- factor(hmda$`denial_reason-2`,
+                                 levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9), 
+                                 labels = c("Debt-to-income ratio",
+                                            "Employment history",
+                                            "Credit history",
+                                            "Collateral",
+                                            "Insufficient cash (downpayment, closing costs)",
+                                            "Unverifiable information",
+                                            "Credit application incomplete",
+                                            "Mortgage insurance denied",
+                                            "Other")
+)
+
+hmda$`denial_reason-3` <- factor(hmda$`denial_reason-3`,
+                                 levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9), 
+                                 labels = c("Debt-to-income ratio",
+                                            "Employment history",
+                                            "Credit history",
+                                            "Collateral",
+                                            "Insufficient cash (downpayment, closing costs)",
+                                            "Unverifiable information",
+                                            "Credit application incomplete",
+                                            "Mortgage insurance denied",
+                                            "Other")
+)
+
+hmda$`denial_reason-4` <- factor(hmda$`denial_reason-4`,
+                                 levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9), 
+                                 labels = c("Debt-to-income ratio",
+                                            "Employment history",
+                                            "Credit history",
+                                            "Collateral",
+                                            "Insufficient cash (downpayment, closing costs)",
+                                            "Unverifiable information",
+                                            "Credit application incomplete",
+                                            "Mortgage insurance denied",
+                                            "Other")
+)
+```
+
+```{r}
+ts_2020 <- read_csv("../data/2020_ts_csv.csv", show_col_types = F)
+ts_2019 <- read_csv("../data/2019_public_ts_csv.csv", show_col_types = F)
+ts_2018 <- read_csv("../data/2018_public_ts_csv.csv", show_col_types = F)
+
+ts <- bind_rows(ts_2020, ts_2019, ts_2018) %>% 
+  select(activity_year, lei, agency_code, respondent_name) %>%
+  mutate_all(as_factor)
+
+ts$agency_code <- factor(ts$agency_code,
+                         levels = c(1, 2, 3, 4, 5, 7, 9), 
+                         labels = c("OCC",
+                                    "FRS",
+                                    "FDIC",
+                                    "OTS",
+                                    "NCUA",
+                                    "HUD",
+                                    "CFPB")
+)
+
+hmda_data <- right_join(ts, hmda, by = c("activity_year", "lei"))
+```
+
+```{r message=FALSE, warning=FALSE}
+attr(hmda_data$activity_year, "label") <- "The calendar year the data submission covers"
+attr(hmda_data$lei, "label") <- "A financial institution’s Legal Entity Identifier"
+attr(hmda_data$agency_code, "label") <- "The regulatory agency of the HMDA reporting institution"
+attr(hmda_data$respondent_name, "label") <- "The name of the HMDA reporting institution"
+attr(hmda_data$`derived_msa-md`, "label") <- "The 5 digit derived MSA (metropolitan statistical area) or MD (metropolitan division) code"
+attr(hmda_data$state_code, "label") <- "Two-letter state code"
+attr(hmda_data$county_code, "label") <- "State-county FIPS code"
+attr(hmda_data$census_tract, "label") <- "11 digit census tract number"
+attr(hmda_data$conforming_loan_limit, "label") <- "Indicates whether the reported loan amount exceeds the GSE (government sponsored enterprise) conforming loan limit"
+attr(hmda_data$derived_loan_product_type, "label") <- "Derived loan product type from Loan Type and Lien Status fields for easier querying of specific records"
+attr(hmda_data$derived_dwelling_category, "label") <- "Derived dwelling type from Construction Method and Total Units fields for easier querying of specific records"
+attr(hmda_data$derived_ethnicity, "label") <- "Single aggregated ethnicity categorization derived from applicant/borrower and co-applicant/co-borrower ethnicity fields"
+attr(hmda_data$derived_race, "label") <- "Single aggregated race categorization derived from applicant/borrower and co-applicant/co-borrower race fields"
+attr(hmda_data$derived_sex, "label") <- "Single aggregated sex categorization derived from applicant/borrower and co-applicant/co-borrower sex fields"
+attr(hmda_data$action_taken, "label") <- "The action taken on the covered loan or application"
+attr(hmda_data$purchaser_type, "label") <- "Type of entity purchasing a covered loan from the institution"
+attr(hmda_data$preapproval, "label") <- "Whether the covered loan or application involved a request for a preapproval of a home purchase loan under a preapproval program"
+attr(hmda_data$loan_type, "label") <- "The type of covered loan or application"
+attr(hmda_data$loan_purpose, "label") <- "The purpose of covered loan or application"
+attr(hmda_data$lien_status, "label") <- "Lien status of the property securing the covered loan, or in the case of an application, proposed to secure the covered loan"
+attr(hmda_data$reverse_mortgage, "label") <- "Whether the covered loan or application is for a reverse mortgage"
+attr(hmda_data$`open-end_line_of_credit`, "label") <- "Whether the covered loan or application is for an open-end line of credit"
+attr(hmda_data$business_or_commercial_purpose, "label") <- "Whether the covered loan or application is primarily for a business or commercial purpose"
+attr(hmda_data$loan_amount, "label") <- "The amount of the covered loan, or the amount applied for"
+attr(hmda_data$loan_to_value_ratio, "label") <- "The ratio of the total amount of debt secured by the property to the value of the property relied on in making the credit decision"
+attr(hmda_data$interest_rate, "label") <- "The interest rate for the covered loan or application"
+attr(hmda_data$rate_spread, "label") <- "The difference between the covered loan’s annual percentage rate (APR) and the average prime offer rate (APOR) for a comparable transaction as of the date the interest rate is set"
+attr(hmda_data$hoepa_status, "label") <- "Whether the covered loan is a high-cost mortgage"
+attr(hmda_data$total_loan_costs, "label") <- "The amount, in dollars, of total loan costs"
+attr(hmda_data$total_points_and_fees, "label") <- "The total points and fees, in dollars, charged in connection with the covered loan"
+attr(hmda_data$origination_charges, "label") <- "The total of all itemized amounts, in dollars, that are designated borrower-paid at or before closing"
+attr(hmda_data$discount_points, "label") <- "The points paid, in dollars, to the creditor to reduce the interest rate"
+attr(hmda_data$lender_credits, "label") <- "The amount, in dollars, of lender credits"
+attr(hmda_data$loan_term, "label") <- "The number of months after which the legal obligation will mature or terminate, or would have matured or terminated"
+attr(hmda_data$prepayment_penalty_term, "label") <- "The term, in months, of any prepayment penalty"
+attr(hmda_data$intro_rate_period, "label") <- "The number of months, or proposed number of months in the case of an application, until the first date the interest rate may change after closing or account opening"
+attr(hmda_data$negative_amortization, "label") <- "Whether the contractual terms include, or would have included, a term that would cause the covered loan to be a negative amortization loan"
+attr(hmda_data$interest_only_payment, "label") <- "Whether the contractual terms include, or would have included, interest-only payments"
+attr(hmda_data$balloon_payment, "label") <- "Whether the contractual terms include, or would have included, a balloon payment"
+attr(hmda_data$other_nonamortizing_features, "label") <- "Whether the contractual terms include, or would have included, any term, other than those described in Paragraphs 1003.4(a)(27)(i), (ii), and (iii) that would allow for payments other than fully amortizing payments during the loan term"
+attr(hmda_data$property_value, "label") <- "The value of the property securing the covered loan or, in the case of an application, proposed to secure the covered loan, relied on in making the credit decision"
+attr(hmda_data$construction_method, "label") <- "Construction method for the dwelling"
+attr(hmda_data$occupancy_type, "label") <- "Occupancy type for the dwelling"
+attr(hmda_data$manufactured_home_secured_property_type, "label") <- "Whether the covered loan or application is, or would have been, secured by a manufactured home and land, or by a manufactured home and not land"
+attr(hmda_data$manufactured_home_land_property_interest, "label") <- "The applicant’s or borrower’s land property interest in the land on which a manufactured home is, or will be, located"
+attr(hmda_data$total_units, "label") <- "The number of individual dwelling units related to the property securing the covered loan or, in the case of an application, proposed to secure the covered loan"
+attr(hmda_data$multifamily_affordable_units, "label") <- "Reported values as a percentage, rounded to the nearest whole number, of the value reported for Total Units"
+attr(hmda_data$income, "label") <- "The gross annual income, in thousands of dollars, relied on in making the credit decision, or if a credit decision was not made, the gross annual income relied on in processing the application"
+attr(hmda_data$debt_to_income_ratio, "label") <- "The ratio, as a percentage, of the applicant’s or borrower’s total monthly debt to the total monthly income relied on in making the credit decision"
+attr(hmda_data$applicant_credit_score_type, "label") <- "The name and version of the credit scoring model used to generate the credit score, or scores, relied on in making the credit decision"
+attr(hmda_data$`co-applicant_credit_score_type`, "label") <- "The name and version of the credit scoring model used to generate the credit score, or scores, relied on in making the credit decision"
+attr(hmda_data$`applicant_ethnicity-1`, "label") <- "Ethnicity of the applicant or borrower"
+attr(hmda_data$`applicant_ethnicity-2`, "label") <- "Ethnicity of the applicant or borrower"
+attr(hmda_data$`applicant_ethnicity-3`, "label") <- "Ethnicity of the applicant or borrower"
+attr(hmda_data$`applicant_ethnicity-4`, "label") <- "Ethnicity of the applicant or borrower"
+attr(hmda_data$`applicant_ethnicity-5`, "label") <- "Ethnicity of the applicant or borrower"
+attr(hmda_data$`co-applicant_ethnicity-1`, "label") <- "Ethnicity of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_ethnicity-2`, "label") <- "Ethnicity of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_ethnicity-3`, "label") <- "Ethnicity of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_ethnicity-4`, "label") <- "Ethnicity of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_ethnicity-5`, "label") <- "Ethnicity of the first co-applicant or co-borrower"
+attr(hmda_data$applicant_ethnicity_observed, "label") <- "Whether the ethnicity of the applicant or borrower was collected on the basis of visual observation or surname"
+attr(hmda_data$`co-applicant_ethnicity_observed`, "label") <- "Whether the ethnicity of the first co-applicant or co-borrower was collected on the basis of visual observation or surname"
+attr(hmda_data$`applicant_race-1`, "label") <- "Race of the applicant or borrower"
+attr(hmda_data$`applicant_race-2`, "label") <- "Race of the applicant or borrower"
+attr(hmda_data$`applicant_race-3`, "label") <- "Race of the applicant or borrower"
+attr(hmda_data$`applicant_race-4`, "label") <- "Race of the applicant or borrower"
+attr(hmda_data$`applicant_race-5`, "label") <- "Race of the applicant or borrower"
+attr(hmda_data$`co-applicant_race-1`, "label") <- "Race of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_race-2`, "label") <- "Race of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_race-3`, "label") <- "Race of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_race-4`, "label") <- "Race of the first co-applicant or co-borrower"
+attr(hmda_data$`co-applicant_race-5`, "label") <- "Race of the first co-applicant or co-borrower"
+attr(hmda_data$applicant_race_observed, "label") <- "Whether the race of the applicant or borrower was collected on the basis of visual observation or surname"
+attr(hmda_data$`co-applicant_race_observed`, "label") <- "Whether the race of the first co-applicant or co-borrower was collected on the basis of visual observation or surname"
+attr(hmda_data$applicant_sex, "label") <- "Sex of the applicant or borrower"
+attr(hmda_data$`co-applicant_sex`, "label") <- "Sex of the first co-applicant or co-borrower"
+attr(hmda_data$applicant_sex_observed, "label") <- "Whether the sex of the applicant or borrower was collected on the basis of visual observation or surname"
+attr(hmda_data$`co-applicant_sex_observed`, "label") <- "Whether the sex of the first co-applicant or co-borrower was collected on the basis of visual observation or surname"
+attr(hmda_data$applicant_age, "label") <- "The age, in years, of the applicant or borrower"
+attr(hmda_data$`co-applicant_age`, "label") <- "The age, in years, of the first co-applicant or co-borrower"
+attr(hmda_data$applicant_age_above_62, "label") <- "Whether the applicant or borrower age is above 62"
+attr(hmda_data$`co-applicant_age_above_62`, "label") <- "Whether the first co-applicant or co-borrower age is above 62"
+attr(hmda_data$submission_of_application, "label") <- "Whether the applicant or borrower submitted the application directly to the financial institution"
+attr(hmda_data$initially_payable_to_institution, "label") <- "Whether the obligation arising from the covered loan was, or, in the case of an application, would have been, initially payable to the financial institution"
+attr(hmda_data$`aus-1`, "label") <- "The automated underwriting system(s) (AUS) used by the financial institution to evaluate the application"
+attr(hmda_data$`aus-2`, "label") <- "The automated underwriting system(s) (AUS) used by the financial institution to evaluate the application"
+attr(hmda_data$`aus-3`, "label") <- "The automated underwriting system(s) (AUS) used by the financial institution to evaluate the application"
+attr(hmda_data$`aus-4`, "label") <- "The automated underwriting system(s) (AUS) used by the financial institution to evaluate the application"
+attr(hmda_data$`aus-5`, "label") <- "The automated underwriting system(s) (AUS) used by the financial institution to evaluate the application"
+attr(hmda_data$`denial_reason-1`, "label") <- "The principal reason, or reasons, for denial"
+attr(hmda_data$`denial_reason-2`, "label") <- "The principal reason, or reasons, for denial"
+attr(hmda_data$`denial_reason-3`, "label") <- "The principal reason, or reasons, for denial"
+attr(hmda_data$`denial_reason-4`, "label") <- "The principal reason, or reasons, for denial"
+attr(hmda_data$tract_population, "label") <- "Total population in tract"
+attr(hmda_data$tract_minority_population_percent, "label") <- "Percentage of minority population to total population for tract, rounded to two decimal places"
+attr(hmda_data$ffiec_msa_md_median_family_income, "label") <- "FFIEC Median family income in dollars for the MSA/MD in which the tract is located (adjusted annually by FFIEC)"
+attr(hmda_data$tract_to_msa_income_percentage, "label") <- "Percentage of tract median family income compared to MSA/MD median family income"
+attr(hmda_data$tract_owner_occupied_units, "label") <- "Number of dwellings, including individual condominiums, that are lived in by the owner"
+attr(hmda_data$tract_one_to_four_family_homes, "label") <- "Dwellings that are built to houses with fewer than 5 families"
+attr(hmda_data$tract_median_age_of_housing_units, "label") <- "Tract median age of homes"
+```
+
+```{r}
+write_rds(hmda_data, file = "../shiny_app/data/hmda_data.rds")
+```
+
+```{r}
+hmda_data_filtered <- hmda_data %>%
+  transmute("Institution Name" = respondent_name,
+            "LEI" = lei,
+            "State" = state_code,
+            "County" = county_code,
+            "Census Tract" = census_tract,
+            "Year" = activity_year, 
+            "Action Taken" = action_taken,
+            "Purchaser Type" = purchaser_type,
+            "Preapproval" = preapproval,
+            "Loan Type" = loan_type,
+            "Loan Purpose" = loan_purpose,
+            "Lien Status" = lien_status,
+            "Business or Commercial Purpose" = business_or_commercial_purpose,
+            "Loan Amount" = loan_amount,
+            "Loan-to-Value Ratio" = loan_to_value_ratio,
+            "Interest Rate" = interest_rate,
+            "Rate Spread" = rate_spread,
+            "HOEPA Status" = hoepa_status,
+            "Total Loan Costs" = total_loan_costs,
+            "Total Points and Fees" = total_points_and_fees,
+            "Origination Charges" = origination_charges,
+            "Discount Points" = discount_points,
+            "Lender Credits" = lender_credits,
+            "Loan Term" = loan_term,
+            "Property Value" = property_value,
+            "Income" = income,
+            "Debt-to-Income Ratio" = debt_to_income_ratio,
+            "Applicant Credit Score Type" = applicant_credit_score_type,
+            "Race" = derived_race,
+            "Ethnicity" = derived_ethnicity,
+            "Sex" = derived_sex,
+            "Applicant Age" = applicant_age,
+            "Denial Reason #1" = `denial_reason-1`,
+            "Denial Reason #2" = `denial_reason-2`,
+            "Denial Reason #3" = `denial_reason-3`,
+)
+```
+
+```{r}
+write_rds(hmda_data_filtered, file = "../shiny_app/data/hmda_data_filtered.rds")
+```
+
+```{r}
+api_key <- read_json("../data/census.json")
+census_base_url <- c("https://api.census.gov/data/2019/acs/acs5")
+
+census_params <- paste("NAME",
+                       "B01001_001E", # population
+                       "B01001_002E", # male
+                       "B01001_026E", # female
+                       "B02001_002E", # white
+                       "B02001_003E", # black
+                       "B02001_004E", # american indian
+                       "B02001_005E", # asian
+                       "B02001_006E", # pacific islander
+                       "B02001_007E", # other race
+                       "B02001_008E", # two or more races
+                       "B03002_002E", # not hispanic or latino
+                       "B03002_003E", # white, not hispanic or latino
+                       "B03002_012E", # hispanic or latino
+                       "B03002_013E", # white, hispanic or latino
+                       "B06001_002E", # age, 0-5
+                       "B06001_003E", # age, 5-17
+                       "B06001_004E", # age, 18-24
+                       "B06001_005E", # age, 25-34
+                       "B06001_006E", # age, 35-44
+                       "B06001_007E", # age, 45-54
+                       "B06001_008E", # age, 55-59
+                       "B06001_009E", # age, 60-61
+                       "B06001_010E", # age, 62-64
+                       "B06001_011E", # age, 65-74
+                       "B06001_012E", # age, 75+
+                       "B99181_002E", # disability
+                       "B11001_001E", # households
+                       "B19013_001E", # median income
+                       "B19083_001E", # gini index
+                       "B25096_002E", # mortgages
+                       "B25096_003E", # mortgages, $0k-50k
+                       "B25096_004E", # mortgages, $50k-100k
+                       "B25096_005E", # mortgages, $100k-150k
+                       "B25096_006E", # mortgages, $150k-200k
+                       "B25096_007E", # mortgages, $200k-300k
+                       "B25096_008E", # mortgages, $300k-500k
+                       "B25096_009E", # mortgages, $500k-750k
+                       "B25096_010E", # mortgages, $750k-1M
+                       "B25096_011E", # mortgages, $1M+
+                       sep = ",")
+
+census_query <- list('get' = census_params,
+                     'for'= 'county:*',
+                     'in' = 'state:53',
+                     'key' = api_key)
+
+census_request <- GET(census_base_url, query = census_query)
+
+census_county_data <- fromJSON(content(census_request, as = "text"))[-1, ] %>% 
+  as_tibble()
+  
+colnames(census_county_data) <- c("name", 
+                                  "population", 
+                                  "male", 
+                                  "female",
+                                  "white",
+                                  "black",
+                                  "american_indian",
+                                  "asian",
+                                  "pacific_islander",
+                                  "other_race",
+                                  "two_or_more_races",
+                                  "not_hispanic_or_latino",
+                                  "white_not_hispanic_or_latino",
+                                  "hispanic_or_latino",
+                                  "white_hispanic_or_latino",
+                                  "age_0_to_5",
+                                  "age_5_to_17",
+                                  "age_18_to_24",
+                                  "age_25_to_34",
+                                  "age_35_to_44",
+                                  "age_45_to_54",
+                                  "age_55_to_59",
+                                  "age_60_to_61",
+                                  "age_62_to_64",
+                                  "age_65_to_74",
+                                  "age_75_and_over",
+                                  "disability",
+                                  "households",
+                                  "median_income",
+                                  "gini_index",
+                                  "mortgages",
+                                  "mortgages_0k_to_50k",
+                                  "mortgages_50k_to_100k",
+                                  "mortgages_100k_to_150k",
+                                  "mortgages_150k_to_200k",
+                                  "mortgages_200k_to_300k",
+                                  "mortgages_300k_to_500k",
+                                  "mortgages_500k_to_750k",
+                                  "mortgages_750k_to_1M",
+                                  "mortgages_1M_or_more",
+                                  "STATEFP",
+                                  "COUNTYFP")
+
+census_county_data[2:40] <- lapply(census_county_data[2:40], as.numeric)
+
+write_csv(census_county_data, "../data/census_county_data.csv")
+```
+
+```{r}
+counties <- st_read("../data/tl_2021_us_county/tl_2021_us_county.shp", quiet = T, as_tibble = T) %>%
+  select(STATEFP, COUNTYFP, NAME, NAMELSAD, CSAFP, CBSAFP, ALAND, AWATER, INTPTLAT, INTPTLON, geometry)
+
+census_county_data <- inner_join(census_county_data, counties, by = c("STATEFP", "COUNTYFP"))
+
+write_rds(census_county_data, file = "../shiny_app/data/census_county_data.rds")
+```
+
+```{r}
+api_key <- read_json("../data/census.json")
+census_base_url <- c("https://api.census.gov/data/2019/acs/acs5")
+
+census_params <- paste("NAME",
+                       "B01001_001E", # population
+                       "B01001_002E", # male
+                       "B01001_026E", # female
+                       "B02001_002E", # white
+                       "B02001_003E", # black
+                       "B02001_004E", # american indian
+                       "B02001_005E", # asian
+                       "B02001_006E", # pacific islander
+                       "B02001_007E", # other race
+                       "B02001_008E", # two or more races
+                       "B03002_002E", # not hispanic or latino
+                       "B03002_003E", # white, not hispanic or latino
+                       "B03002_012E", # hispanic or latino
+                       "B03002_013E", # white, hispanic or latino
+                       "B06001_002E", # age, 0-5
+                       "B06001_003E", # age, 5-17
+                       "B06001_004E", # age, 18-24
+                       "B06001_005E", # age, 25-34
+                       "B06001_006E", # age, 35-44
+                       "B06001_007E", # age, 45-54
+                       "B06001_008E", # age, 55-59
+                       "B06001_009E", # age, 60-61
+                       "B06001_010E", # age, 62-64
+                       "B06001_011E", # age, 65-74
+                       "B06001_012E", # age, 75+
+                       "B99181_002E", # disability
+                       "B11001_001E", # households
+                       "B19013_001E", # median income
+                       "B19083_001E", # gini index
+                       "B25096_002E", # mortgages
+                       "B25096_003E", # mortgages, $0k-50k
+                       "B25096_004E", # mortgages, $50k-100k
+                       "B25096_005E", # mortgages, $100k-150k
+                       "B25096_006E", # mortgages, $150k-200k
+                       "B25096_007E", # mortgages, $200k-300k
+                       "B25096_008E", # mortgages, $300k-500k
+                       "B25096_009E", # mortgages, $500k-750k
+                       "B25096_010E", # mortgages, $750k-1M
+                       "B25096_011E", # mortgages, $1M+
+                       sep = ",")
+
+census_query <- list('get' = census_params,
+                     'for'= 'tract:*',
+                     'in' = 'state:53',
+                     'key' = api_key)
+
+census_request <- GET(census_base_url, query = census_query)
+
+census_tract_data <- fromJSON(content(census_request, as = "text"))[-1, ] %>% 
+  as_tibble()
+  
+colnames(census_tract_data) <- c("name", 
+                                 "population", 
+                                 "male", 
+                                 "female",
+                                 "white",
+                                 "black",
+                                 "american_indian",
+                                 "asian",
+                                 "pacific_islander",
+                                 "other_race",
+                                 "two_or_more_races",
+                                 "not_hispanic_or_latino",
+                                 "white_not_hispanic_or_latino",
+                                 "hispanic_or_latino",
+                                 "white_hispanic_or_latino",
+                                 "age_0_to_5",
+                                 "age_5_to_17",
+                                 "age_18_to_24",
+                                 "age_25_to_34",
+                                 "age_35_to_44",
+                                 "age_45_to_54",
+                                 "age_55_to_59",
+                                 "age_60_to_61",
+                                 "age_62_to_64",
+                                 "age_65_to_74",
+                                 "age_75_and_over",
+                                 "disability",
+                                 "households",
+                                 "median_income",
+                                 "gini_index",
+                                 "mortgages",
+                                 "mortgages_0k_to_50k",
+                                 "mortgages_50k_to_100k",
+                                 "mortgages_100k_to_150k",
+                                 "mortgages_150k_to_200k",
+                                 "mortgages_200k_to_300k",
+                                 "mortgages_300k_to_500k",
+                                 "mortgages_500k_to_750k",
+                                 "mortgages_750k_to_1M",
+                                 "mortgages_1M_or_more",
+                                 "STATEFP",
+                                 "COUNTYFP",
+                                 "TRACTCE")
+
+census_tract_data[2:40] <- lapply(census_tract_data[2:40], as.numeric)
+
+write_csv(census_tract_data, "../data/census_tract_data.csv")
+```
+
+```{r}
+tracts <- st_read("../data/tl_2021_53_tract/tl_2021_53_tract.shp", quiet = T, as_tibble = T) %>%
+  select(STATEFP, COUNTYFP, TRACTCE, NAME, NAMELSAD, ALAND, AWATER, INTPTLAT, INTPTLON, geometry)
+
+census_tract_data <- inner_join(census_tract_data, tracts, by = c("STATEFP", "COUNTYFP", "TRACTCE"))
+
+write_rds(census_tract_data, file = "../shiny_app/data/census_tract_data.rds")
+```
+
+```{r}
+census_county_data$scope <- "county"
+census_tract_data$scope <- "tract"
+
+census_data <- bind_rows(census_county_data, census_tract_data)
+
+write_rds(census_data, file = "../shiny_app/data/census_data.rds")
+```
